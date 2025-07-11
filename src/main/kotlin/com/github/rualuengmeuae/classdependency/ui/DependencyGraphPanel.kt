@@ -1,7 +1,9 @@
 package com.github.rualuengmeuae.classdependency.ui // <-- Updated package
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.Disposable // For MessageBusConnection
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerListener // Added import
 import com.intellij.openapi.project.Project
 // import com.intellij.openapi.vfs.LocalFileSystem // Not directly used here, but analyzer uses it
 import com.intellij.psi.JavaPsiFacade
