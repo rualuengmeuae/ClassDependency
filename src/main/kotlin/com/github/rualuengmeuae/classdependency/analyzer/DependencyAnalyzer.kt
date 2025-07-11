@@ -4,22 +4,23 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
-import com.intellij.psi.PsiJavaFile
-// import com.intellij.psi.search.FileTypeIndex // Not strictly needed for current logic
-// import com.intellij.psi.search.GlobalSearchScope // Used in findClassFile
-// import com.intellij.lang.java.JavaLanguage // Not strictly needed
+import com.intellij.psi.PsiJavaFile // Added
+import com.intellij.psi.PsiImportList // Added
+import com.intellij.psi.PsiImportStatement // Added
+import com.intellij.psi.PsiClass // Added for mainClass type
+import com.intellij.psi.JavaPsiFacade // Added
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileTypes.JavaFileType
-import com.github.rualuengmeuae.classdependency.ui.Node // <-- Updated import
-import com.github.rualuengmeuae.classdependency.ui.Edge // <-- Updated import
+import com.intellij.openapi.fileTypes.JavaFileType // Added
+import com.github.rualuengmeuae.classdependency.ui.Node
+import com.github.rualuengmeuae.classdependency.ui.Edge
 import java.util.LinkedList
 import java.util.Queue
-import com.intellij.psi.search.GlobalSearchScope // Ensure this is imported
+import com.intellij.psi.search.GlobalSearchScope
 
 class DependencyAnalyzer(private val project: Project) {
 
-    data class ClassInfo(val fqName: String, val simpleName: String, val file: VirtualFile)
+    data class ClassInfo(val fqName: String, val simpleName: String, val file: VirtualFile, val psiClass: PsiClass? = null)
     private val classCache = mutableMapOf<String, ClassInfo>() // Cache FQNameToClassInfo
 
     fun analyzeCurrentEditor(): Pair<Map<String, Node>, List<Edge>>? {
@@ -42,13 +43,14 @@ class DependencyAnalyzer(private val project: Project) {
 
     private fun getClassInfoFromPsiFile(psiFile: PsiJavaFile): ClassInfo? {
         val packageName = psiFile.packageName
-        val classes = psiFile.classes
-        val mainClass = classes.firstOrNull { it.name == psiFile.virtualFile.nameWithoutExtension }
+        val classes = psiFile.classes // This gives PsiClass[]
+        val mainClass: PsiClass? = classes.firstOrNull { it.name == psiFile.virtualFile.nameWithoutExtension }
 
-        return mainClass?.let {
-            val fqName = if (packageName.isNotEmpty()) "$packageName.${it.name}" else it.name ?: ""
-            if (fqName.isNotEmpty()) {
-                 ClassInfo(fqName, it.name!!, psiFile.virtualFile)
+        return mainClass?.let { mc ->
+            val className = mc.name
+            if (className != null) {
+                val fqName = if (packageName.isNotEmpty()) "$packageName.$className" else className
+                ClassInfo(fqName, className, psiFile.virtualFile, mc)
             } else null
         }
     }
@@ -58,7 +60,7 @@ class DependencyAnalyzer(private val project: Project) {
         val allJavaFiles = mutableListOf<PsiJavaFile>()
         ApplicationManager.getApplication().runReadAction {
             ProjectRootManager.getInstance(project).fileIndex.iterateContent { virtualFile ->
-                if (virtualFile.fileType is JavaFileType && !virtualFile.isDirectory) {
+                if (virtualFile.fileType is JavaFileType && !virtualFile.isDirectory && virtualFile.isValid) { // Added isValid check
                     val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
                     if (psiFile is PsiJavaFile) {
                         allJavaFiles.add(psiFile)
@@ -73,16 +75,18 @@ class DependencyAnalyzer(private val project: Project) {
 
         ApplicationManager.getApplication().runReadAction {
             for (psiJavaFile in allJavaFiles) {
+                if (!psiJavaFile.isValid) continue // Check validity
                 getClassInfoFromPsiFile(psiJavaFile)?.let { classInfo ->
                     allProjectClasses[classInfo.fqName] = classInfo
                     classCache[classInfo.fqName] = classInfo // Populate cache
 
-                    val imports = psiJavaFile.importList?.allImportStatements?.mapNotNull { it.importReference?.qualifiedName } ?: emptyList()
-                    // val importWildcards = psiJavaFile.importList?.allImportStatements?.filter{ it.isOnDemand }?.mapNotNull { it.importReference?.qualifiedName } ?: emptyList() // Not used for now
-
+                    val importList: PsiImportList? = psiJavaFile.importList
+                    val imports: List<String> = importList?.allImportStatements?.mapNotNull { importStatement ->
+                        importStatement.importReference?.qualifiedName
+                    } ?: emptyList()
 
                     // Check direct import or import of inner class/static member
-                    if (imports.any { it == targetFqName || it.startsWith("$targetFqName.") }) {
+                    if (imports.any { anImport -> anImport == targetFqName || anImport.startsWith("$targetFqName.") }) {
                         directDependents[classInfo.fqName] = classInfo
                     } else {
                         // Check if targetFqName is used without explicit import (same package or java.lang)
@@ -127,23 +131,26 @@ class DependencyAnalyzer(private val project: Project) {
 
             // Find classes that depend on currentFqName
             ApplicationManager.getApplication().runReadAction {
-                for (psiJavaFile in allJavaFiles) {
-                    getClassInfoFromPsiFile(psiJavaFile)?.let { potentialDependentInfo ->
+                for (psiJavaFileLoopVar in allJavaFiles) { // Renamed to avoid conflict
+                    if (!psiJavaFileLoopVar.isValid) continue
+                    getClassInfoFromPsiFile(psiJavaFileLoopVar)?.let { potentialDependentInfo ->
                         if (potentialDependentInfo.fqName == currentFqName) return@let // Skip self-reference check here
 
-                        val imports = psiJavaFile.importList?.allImportStatements?.mapNotNull { it.importReference?.qualifiedName } ?: emptyList()
-                        if (imports.any { it == currentFqName || it.startsWith("$currentFqName.") }) {
+                        val importList: PsiImportList? = psiJavaFileLoopVar.importList
+                        val imports: List<String> = importList?.allImportStatements?.mapNotNull { importStatement ->
+                            importStatement.importReference?.qualifiedName
+                        } ?: emptyList()
+
+                        if (imports.any { anImport -> anImport == currentFqName || anImport.startsWith("$currentFqName.") }) {
                             nodes.putIfAbsent(potentialDependentInfo.fqName, Node(potentialDependentInfo.simpleName, potentialDependentInfo.fqName, 0, 0))
 
-                            if (edges.none { it.from == potentialDependentInfo.fqName && it.to == currentFqName }) {
+                            if (edges.none { edge -> edge.from == potentialDependentInfo.fqName && edge.to == currentFqName }) {
                                 edges.add(Edge(potentialDependentInfo.fqName, currentFqName))
                             }
 
                             // Add to queue only if it hasn't been deeply processed yet.
-                            // Being in 'processed' means its own dependents were (or are being) explored.
-                            // However, it might be added to queue if it's a direct dependent of another branch.
-                            if (potentialDependentInfo.fqName !in processed || directDependents.containsKey(potentialDependentInfo.fqName)) {
-                                 if(queue.none {it.first == potentialDependentInfo.fqName}) { // Avoid adding duplicates to queue
+                            if (potentialDependentInfo.fqName !in processed) { // Simplified condition
+                                 if(queue.none {it.first == potentialDependentInfo.fqName}) {
                                     queue.add(potentialDependentInfo.fqName to currentClassInfo)
                                  }
                             }
@@ -156,7 +163,7 @@ class DependencyAnalyzer(private val project: Project) {
     }
      fun findClassFile(fqName: String): VirtualFile? {
         return classCache[fqName]?.file ?: ApplicationManager.getApplication().runReadAction<VirtualFile?> {
-            val psiFacade = com.intellij.psi.JavaPsiFacade.getInstance(project)
+            val psiFacade = JavaPsiFacade.getInstance(project) // Use imported JavaPsiFacade
             val psiClass = psiFacade.findClass(fqName, GlobalSearchScope.allScope(project))
             psiClass?.containingFile?.virtualFile
         }
