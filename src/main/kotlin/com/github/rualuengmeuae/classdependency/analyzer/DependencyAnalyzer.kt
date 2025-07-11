@@ -11,7 +11,7 @@ import com.intellij.psi.PsiClass // Added for mainClass type
 import com.intellij.psi.JavaPsiFacade // Added
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileTypes.JavaFileType // Added
+// import com.intellij.openapi.fileTypes.JavaFileType // Will use FQN
 import com.github.rualuengmeuae.classdependency.ui.Node
 import com.github.rualuengmeuae.classdependency.ui.Edge
 import java.util.LinkedList
@@ -29,7 +29,7 @@ class DependencyAnalyzer(private val project: Project) {
             val editor = FileEditorManager.getInstance(project).selectedTextEditor
             if (editor != null) {
                 val virtualFile = FileEditorManager.getInstance(project).selectedFiles.firstOrNull()
-                if (virtualFile != null && virtualFile.fileType is JavaFileType) {
+                if (virtualFile != null && virtualFile.fileType is com.intellij.openapi.fileTypes.JavaFileType) { // FQN
                     currentPsiFile = PsiManager.getInstance(project).findFile(virtualFile) as? PsiJavaFile
                 }
             }
@@ -60,7 +60,7 @@ class DependencyAnalyzer(private val project: Project) {
         val allJavaFiles = mutableListOf<PsiJavaFile>()
         ApplicationManager.getApplication().runReadAction {
             ProjectRootManager.getInstance(project).fileIndex.iterateContent { virtualFile ->
-                if (virtualFile.fileType is JavaFileType && !virtualFile.isDirectory && virtualFile.isValid) { // Added isValid check
+                if (virtualFile.fileType is com.intellij.openapi.fileTypes.JavaFileType && !virtualFile.isDirectory && virtualFile.isValid) { // FQN & isValid check
                     val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
                     if (psiFile is PsiJavaFile) {
                         allJavaFiles.add(psiFile)
