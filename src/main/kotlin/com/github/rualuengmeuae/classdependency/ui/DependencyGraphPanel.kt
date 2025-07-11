@@ -37,7 +37,7 @@ data class Edge(val from: String, val to: String)
 class DependencyGraphPanel(
     private val project: Project,
     private val analyzer: DependencyAnalyzer
-) : JPanel(), FileEditorManagerListener { // Implement FileEditorManagerListener
+) : JPanel(), FileEditorManagerListener, Disposable { // Implement Disposable
     private var nodes = mutableMapOf<String, Node>()
     private var edges = mutableListOf<Edge>()
     private var draggedNode: Node? = null
@@ -244,6 +244,12 @@ class DependencyGraphPanel(
                  }
             }
         }
+    }
+
+    // Disposable method
+    override fun dispose() {
+        // Nothing specific to dispose here for this panel itself,
+        // but message bus connection handled by connect(this) will be auto-disconnected.
     }
 
     override fun paintComponent(g: Graphics) {
