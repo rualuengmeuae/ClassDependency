@@ -5,11 +5,15 @@
     <vendor>rualuengmeuae</vendor>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
 
     <resource-bundle>messages.MyBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.rualuengmeuae.classdependency.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
-        <postStartupActivity implementation="com.github.rualuengmeuae.classdependency.startup.MyProjectActivity" />
+        <toolWindow factoryClass="com.github.rualuengmeuae.classdependency.toolWindow.DependencyToolWindowFactory"
+                    id="Class Reverse Dependencies"
+                    anchor="right"
+                    icon="AllIcons.Toolwindows.ToolWindowHierarchy"/>
+        <!-- Removed postStartupActivity and services -->
     </extensions>
 </idea-plugin>
