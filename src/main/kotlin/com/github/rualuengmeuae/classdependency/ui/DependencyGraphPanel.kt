@@ -48,12 +48,14 @@ class DependencyGraphPanel(
             }
         }
         graphComponent = mxGraphComponent(graph)
+        graphComponent.isDragEnabled = true // Ensure drag is enabled on the component
         add(graphComponent, BorderLayout.CENTER)
 
         // Configure graph properties & styles
         graph.isCellsEditable = false
         graph.isCellsSelectable = true
         graph.isCellsMovable = true
+        graph.isCellsLocked = false // Explicitly unlock cells
         graph.isEdgeLabelsMovable = false
         graph.isVertexLabelsMovable = false
 
@@ -62,6 +64,8 @@ class DependencyGraphPanel(
         edgeStyle[com.mxgraph.util.mxConstants.STYLE_EDGE] = com.mxgraph.view.mxEdgeStyle.ElbowConnector
         edgeStyle[com.mxgraph.util.mxConstants.STYLE_ROUNDED] = true
         edgeStyle[com.mxgraph.util.mxConstants.STYLE_STROKECOLOR] = "#606060" // Dark gray for edges
+        edgeStyle[com.mxgraph.util.mxConstants.STYLE_STROKEWIDTH] = 1.5 // Set edge width
+        edgeStyle[com.mxgraph.util.mxConstants.STYLE_ENDARROW] = com.mxgraph.util.mxConstants.ARROW_CLASSIC // Add classic arrow
         graph.stylesheet.defaultEdgeStyle = edgeStyle
 
         // Set default vertex style
@@ -184,11 +188,10 @@ class DependencyGraphPanel(
 
         // Organic Layout (Force-directed)
         val layout = com.mxgraph.layout.mxOrganicLayout(graph)
-        layout.isNodeDistributionCost = true
+        // layout.isNodeDistributionCost = true // This property might not exist in this jgraphx version
         layout.minDistanceLimit = 1.2
         layout.maxIterations = 200
         layout.execute(graph.defaultParent)
-
 
         SwingUtilities.invokeLater { graphComponent.refresh() }
     }
