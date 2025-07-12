@@ -28,7 +28,7 @@ import java.util.LinkedList
 import java.util.Queue
 
 
-data class Node(val id: String, val fqName: String, var x: Int, var y: Int, val width: Int = 150, val height: Int = 40) {
+data class Node(val id: String, val fqName: String, var x: Int, var y: Int, var width: Int = 150, val height: Int = 40) {
     fun getRect(): Rectangle = Rectangle(x, y, width, height)
 }
 
@@ -47,6 +47,12 @@ class DependencyGraphPanel(
         override fun paintComponent(g: Graphics) {
             super.paintComponent(g)
             this@DependencyGraphPanel.paintGraph(g)
+        }
+
+        override fun getPreferredSize(): java.awt.Dimension {
+            val maxX = nodes.values.map { it.x + it.width }.maxOrNull() ?: 0
+            val maxY = nodes.values.map { it.y + it.height }.maxOrNull() ?: 0
+            return java.awt.Dimension(maxX + 50, maxY + 50)
         }
     }
 
@@ -260,7 +266,10 @@ class DependencyGraphPanel(
             }
             currentY += levelHeight
         }
-        SwingUtilities.invokeLater { graphPanel.repaint() }
+        SwingUtilities.invokeLater {
+            graphPanel.revalidate()
+            graphPanel.repaint()
+        }
     }
 
     private fun copyToClipboard(text: String) {
@@ -301,6 +310,12 @@ class DependencyGraphPanel(
         g2d.color = graphPanel.background
 
         g2d.fillRect(0, 0, graphPanel.width, graphPanel.height)
+
+        for (node in nodes.values) {
+            val fm = g2d.fontMetrics
+            val textWidth = fm.stringWidth(node.id)
+            node.width = textWidth + 40
+        }
 
         g2d.color = Color.DARK_GRAY
         g2d.stroke = BasicStroke(1.5f)
