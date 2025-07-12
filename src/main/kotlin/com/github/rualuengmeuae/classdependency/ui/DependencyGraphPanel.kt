@@ -20,12 +20,12 @@ import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.geom.Line2D
-import javax.swing.JPanel
-import javax.swing.SwingUtilities
+import javax.swing.*
+import java.awt.BorderLayout
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
-import java.util.LinkedList // For Queue in layout
-import java.util.Queue // For Queue in layout
+import java.util.LinkedList
+import java.util.Queue
 
 
 data class Node(val id: String, val fqName: String, var x: Int, var y: Int, val width: Int = 150, val height: Int = 40) {
@@ -37,14 +37,34 @@ data class Edge(val from: String, val to: String)
 class DependencyGraphPanel(
     private val project: Project,
     private val analyzer: DependencyAnalyzer
-) : JPanel(), FileEditorManagerListener, Disposable { // Implement Disposable
+) : JPanel(BorderLayout()), FileEditorManagerListener, Disposable {
     private var nodes = mutableMapOf<String, Node>()
     private var edges = mutableListOf<Edge>()
     private var draggedNode: Node? = null
     private var dragStartPoint: Point? = null
 
+    private val graphPanel = object : JPanel() {
+        override fun paintComponent(g: Graphics) {
+            super.paintComponent(g)
+            this@DependencyGraphPanel.paintGraph(g)
+        }
+    }
+
+    private val modeComboBox = JComboBox(arrayOf("Current File", "Multiple Files", "All Project Files"))
+    private val pathsTextArea = JTextArea(5, 50)
+    private val analyzeButton = JButton("Analyze")
+    private val pathsScrollPane = JScrollPane(pathsTextArea)
+
     init {
-        addMouseListener(object : MouseAdapter() {
+        val topPanel = JPanel(BorderLayout())
+        topPanel.add(modeComboBox, BorderLayout.NORTH)
+        topPanel.add(pathsScrollPane, BorderLayout.CENTER)
+        topPanel.add(analyzeButton, BorderLayout.SOUTH)
+
+        add(topPanel, BorderLayout.NORTH)
+        add(JScrollPane(graphPanel), BorderLayout.CENTER)
+
+        graphPanel.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 draggedNode = nodes.values.find { it.getRect().contains(e.point) }
                 dragStartPoint = e.point
@@ -62,25 +82,40 @@ class DependencyGraphPanel(
             override fun mouseReleased(e: MouseEvent) {
                 draggedNode = null
                 dragStartPoint = null
-                repaint() // Repaint to remove drag highlight if any
+                graphPanel.repaint()
             }
         })
 
-        addMouseMotionListener(object : MouseAdapter() {
+        graphPanel.addMouseMotionListener(object : MouseAdapter() {
             override fun mouseDragged(e: MouseEvent) {
                 draggedNode?.let { node ->
                     dragStartPoint?.let { start ->
                         node.x += e.x - start.x
                         node.y += e.y - start.y
                         dragStartPoint = e.point
-                        repaint()
+                        graphPanel.repaint()
                     }
                 }
             }
         })
 
-        // Register listener for editor changes
+        modeComboBox.addActionListener {
+            val selectedMode = modeComboBox.selectedIndex
+            pathsScrollPane.isVisible = selectedMode == 1
+            analyzeButton.isVisible = selectedMode == 1 || selectedMode == 2
+            refreshGraph()
+        }
+
+        analyzeButton.addActionListener {
+            refreshGraph(false)
+        }
+
         project.messageBus.connect(this).subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, this)
+
+        // Initial setup
+        val selectedMode = modeComboBox.selectedIndex
+        pathsScrollPane.isVisible = selectedMode == 1
+        analyzeButton.isVisible = selectedMode == 1 || selectedMode == 2
     }
 
     // FileEditorManagerListener methods
@@ -95,15 +130,24 @@ class DependencyGraphPanel(
     }
 
     override fun selectionChanged(event: com.intellij.openapi.fileEditor.FileEditorManagerEvent) {
-        // This is the primary trigger for graph updates
-        SwingUtilities.invokeLater { // Ensure UI updates on EDT
-             refreshGraph()
-        }
+        refreshGraph(true)
     }
 
+    fun refreshGraph(fromSelectionChange: Boolean = false) {
+        if (fromSelectionChange && modeComboBox.selectedIndex != 0) {
+            return
+        }
 
-    fun refreshGraph() {
-        val result = analyzer.analyzeCurrentEditor()
+        val result = when (modeComboBox.selectedIndex) {
+            0 -> analyzer.analyzeCurrentEditor()
+            1 -> {
+                val paths = pathsTextArea.text.split("\n").filter { it.isNotBlank() }
+                analyzer.analyzeDependenciesByPaths(paths)
+            }
+            2 -> analyzer.analyzeAllProjectClasses()
+            else -> null
+        }
+
         if (result != null) {
             updateGraph(result.first, result.second)
         } else {
@@ -119,9 +163,8 @@ class DependencyGraphPanel(
         val nodesByLevel = mutableMapOf<Int, MutableList<Node>>()
         val allNodeIds = newNodes.keys.toMutableSet()
 
-
         if (allNodeIds.isEmpty()) {
-            SwingUtilities.invokeLater { repaint() }
+            SwingUtilities.invokeLater { graphPanel.repaint() }
             return
         }
 
@@ -207,7 +250,7 @@ class DependencyGraphPanel(
         for (levelKey in sortedLevels) {
             val nodesAtVisualLevel = nodesByLevel[levelKey] ?: continue
             val totalWidthAtLevel = nodesAtVisualLevel.sumOf { it.width } + maxOf(0, nodesAtVisualLevel.size - 1) * nodeSpacingHorizontal
-            var currentX = initialX + (this.width.coerceAtLeast(totalWidthAtLevel) - totalWidthAtLevel) / 2
+            var currentX = initialX + (graphPanel.width.coerceAtLeast(totalWidthAtLevel) - totalWidthAtLevel) / 2
             if (currentX < initialX) currentX = initialX
 
             nodesAtVisualLevel.forEach { node ->
@@ -217,7 +260,7 @@ class DependencyGraphPanel(
             }
             currentY += levelHeight
         }
-        SwingUtilities.invokeLater { repaint() }
+        SwingUtilities.invokeLater { graphPanel.repaint() }
     }
 
     private fun copyToClipboard(text: String) {
@@ -252,17 +295,13 @@ class DependencyGraphPanel(
         // but message bus connection handled by connect(this) will be auto-disconnected.
     }
 
-    override fun paintComponent(g: Graphics) {
-        super.paintComponent(g)
+    private fun paintGraph(g: Graphics) {
         val g2d = g as Graphics2D
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        g2d.color = this.background // Use panel background color
+        g2d.color = graphPanel.background
 
-        // Clear panel
-        g2d.fillRect(0, 0, width, height)
+        g2d.fillRect(0, 0, graphPanel.width, graphPanel.height)
 
-
-        // Draw edges
         g2d.color = Color.DARK_GRAY
         g2d.stroke = BasicStroke(1.5f)
         for (edge in edges) {
@@ -270,13 +309,12 @@ class DependencyGraphPanel(
             val toNode = nodes[edge.to]
             if (fromNode != null && toNode != null) {
                 val x1 = fromNode.x + fromNode.width / 2
-                val y1 = fromNode.y // Arrow from top of dependent
+                val y1 = fromNode.y
                 val x2 = toNode.x + toNode.width / 2
-                val y2 = toNode.y + toNode.height // Arrow to bottom of dependency
+                val y2 = toNode.y + toNode.height
 
                 g2d.draw(Line2D.Double(x1.toDouble(), y1.toDouble(), x2.toDouble(), y2.toDouble()))
 
-                // Arrowhead at 'toNode' side
                 val dx = x2 - x1
                 val dy = y2 - y1
                 val angle = Math.atan2(dy.toDouble(), dx.toDouble())
@@ -294,9 +332,8 @@ class DependencyGraphPanel(
             }
         }
 
-        // Draw nodes
         for (node in nodes.values) {
-            g2d.color = Color.decode("#E0E0E0") // Light gray
+            g2d.color = Color.decode("#E0E0E0")
             g2d.fillRoundRect(node.x, node.y, node.width, node.height, 10, 10)
             g2d.color = Color.BLACK
             g2d.drawRoundRect(node.x, node.y, node.width, node.height, 10, 10)
