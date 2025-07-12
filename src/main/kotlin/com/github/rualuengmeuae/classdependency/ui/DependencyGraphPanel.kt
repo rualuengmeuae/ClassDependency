@@ -11,6 +11,8 @@ import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.search.GlobalSearchScope
 import com.mxgraph.layout.hierarchical.mxHierarchicalLayout
 import com.mxgraph.swing.mxGraphComponent
+import com.mxgraph.util.mxEvent
+import com.mxgraph.util.mxEventObject
 import com.mxgraph.view.mxGraph
 import java.awt.BorderLayout
 import java.awt.Toolkit // Needed for copyToClipboard
@@ -49,6 +51,7 @@ class DependencyGraphPanel(
         }
         graphComponent = mxGraphComponent(graph)
         graphComponent.isDragEnabled = true // Ensure drag is enabled on the component
+        graphComponent.graphControl.background = java.awt.Color.WHITE // Set background color
         add(graphComponent, BorderLayout.CENTER)
 
         // Configure graph properties & styles
@@ -59,10 +62,10 @@ class DependencyGraphPanel(
         graph.isEdgeLabelsMovable = false
         graph.isVertexLabelsMovable = false
 
-        // Set default edge style to be curved
+        // Set default edge style
         val edgeStyle = mutableMapOf<String, Any>()
         edgeStyle[com.mxgraph.util.mxConstants.STYLE_EDGE] = com.mxgraph.view.mxEdgeStyle.ElbowConnector
-        edgeStyle[com.mxgraph.util.mxConstants.STYLE_ROUNDED] = true
+        edgeStyle[com.mxgraph.util.mxConstants.STYLE_ROUNDED] = true // Usually for vertices, but can affect edge waypoints if applicable
         edgeStyle[com.mxgraph.util.mxConstants.STYLE_STROKECOLOR] = "#606060" // Dark gray for edges
         edgeStyle[com.mxgraph.util.mxConstants.STYLE_STROKEWIDTH] = 1.5 // Set edge width
         edgeStyle[com.mxgraph.util.mxConstants.STYLE_ENDARROW] = com.mxgraph.util.mxConstants.ARROW_CLASSIC // Add classic arrow
@@ -84,15 +87,17 @@ class DependencyGraphPanel(
         // vertexStyle[com.mxgraph.util.mxConstants.STYLE_OVERFLOW] = "width" // If wrapping is preferred over autosize width
         graph.stylesheet.defaultVertexStyle = vertexStyle
 
+        // Add mouse listener for interactions using graph's event mechanism
+        graph.addListener(mxEvent.CLICK, object : com.mxgraph.util.mxEventSource.mxIEventListener {
+            override fun invoke(sender: Any?, evt: mxEventObject?) {
+                val me = evt?.getProperty("event") as? MouseEvent ?: return // "event" is the MouseEvent
+                val cell = evt.getProperty("cell") // "cell" is the cell that was clicked on
+                // val cell = graphComponent.getCellAt(me.x, me.y) // Alternative if "cell" property is not reliable
 
-        // Add mouse listener for interactions
-        graphComponent.graphControl.addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(e: MouseEvent) {
-                val cell = graphComponent.getCellAt(e.x, e.y)
                 if (cell != null && graph.model.isVertex(cell)) {
                     val fqName = graph.model.getValue(cell) as? String ?: return
-                    if (e.clickCount == 1) {
-                        if (e.isControlDown) {
+                    if (me.clickCount == 1) { // Ensure it's a single click
+                        if (me.isControlDown) {
                             openClassInEditor(fqName)
                         } else {
                             copyToClipboard(fqName)
@@ -102,7 +107,7 @@ class DependencyGraphPanel(
                             val originalFillColor = originalStyle[com.mxgraph.util.mxConstants.STYLE_FILLCOLOR] ?: "#E0E0E0"
 
                             // Apply highlight
-                            graph.setCellStyles(com.mxgraph.util.mxConstants.STYLE_FILLCOLOR, "#A9D0F5", cellsToUpdate)
+                            graph.setCellStyles(com.mxgraph.util.mxConstants.STYLE_FILLCOLOR, "#A9D0F5", cellsToUpdate) // Light blue
                             graphComponent.refresh()
 
                             // Revert to original color after a delay
