@@ -79,6 +79,19 @@ class DependencyGraphPanel(
         bottomPanel.add(pathsDisplayScrollPane, BorderLayout.CENTER)
         add(bottomPanel, BorderLayout.SOUTH)
 
+        pathsDisplayTextArea.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent?) {
+                copyToClipboard(pathsDisplayTextArea.text)
+                val dialog = JDialog()
+                dialog.isUndecorated = true
+                dialog.add(JLabel("Copied to clipboard!"))
+                dialog.pack()
+                dialog.setLocationRelativeTo(this@DependencyGraphPanel)
+                dialog.isVisible = true
+                Timer(1000) { dialog.isVisible = false }.apply { isRepeats = false }.start()
+            }
+        })
+
         graphPanel.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
                 draggedNode = nodes.values.find { it.getRect().contains(e.point) }
