@@ -60,6 +60,8 @@ class DependencyGraphPanel(
     private val pathsTextArea = JTextArea(5, 50)
     private val analyzeButton = JButton("Analyze")
     private val pathsScrollPane = JScrollPane(pathsTextArea)
+    private val pathsDisplayTextArea = JTextArea(5, 50)
+
 
     init {
         val topPanel = JPanel(BorderLayout())
@@ -69,6 +71,13 @@ class DependencyGraphPanel(
 
         add(topPanel, BorderLayout.NORTH)
         add(JScrollPane(graphPanel), BorderLayout.CENTER)
+
+        pathsDisplayTextArea.isEditable = false
+        val pathsDisplayScrollPane = JScrollPane(pathsDisplayTextArea)
+
+        val bottomPanel = JPanel(BorderLayout())
+        bottomPanel.add(pathsDisplayScrollPane, BorderLayout.CENTER)
+        add(bottomPanel, BorderLayout.SOUTH)
 
         graphPanel.addMouseListener(object : MouseAdapter() {
             override fun mousePressed(e: MouseEvent) {
@@ -164,6 +173,7 @@ class DependencyGraphPanel(
     fun updateGraph(newNodes: Map<String, Node>, newEdges: List<Edge>) {
         this.nodes = newNodes.toMutableMap()
         this.edges = newEdges.toMutableList()
+        pathsDisplayTextArea.text = ""
 
         val nodeLevels = mutableMapOf<String, Int>()
         val nodesByLevel = mutableMapOf<Int, MutableList<Node>>()
@@ -208,6 +218,21 @@ class DependencyGraphPanel(
                 nodesByLevel.getOrPut(0) { mutableListOf() }.add(it)
             }
         }
+
+        val allPaths = mutableListOf<String>()
+        val rootPaths = mutableListOf<String>()
+
+        newNodes.values.forEach { node ->
+            val path = analyzer.findClassFile(node.fqName)?.path
+            if (path != null) {
+                if (currentRoots.contains(node.fqName)) {
+                    rootPaths.add(path)
+                } else {
+                    allPaths.add(path)
+                }
+            }
+        }
+        pathsDisplayTextArea.text = (rootPaths + allPaths).joinToString("\n")
 
         var maxLevel = 0
         val visitedForLayout = mutableSetOf<String>()
