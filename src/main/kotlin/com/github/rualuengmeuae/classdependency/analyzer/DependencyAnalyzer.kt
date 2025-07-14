@@ -109,20 +109,15 @@ class DependencyAnalyzer(private val project: Project) {
                 }
             }
 
-            val psiFacade = JavaPsiFacade.getInstance(project)
-            for (targetFqName in targetFqNames) {
-                val targetPsiClass = psiFacade.findClass(targetFqName, GlobalSearchScope.allScope(project))
-                if (targetPsiClass != null) {
-                    val searchScope = GlobalSearchScope.projectScope(project)
-                    ReferencesSearch.search(targetPsiClass, searchScope).forEach { psiReference ->
-                        val referencingElement = psiReference.element
-                        val referencingFile = PsiTreeUtil.getParentOfType(referencingElement, PsiJavaFile::class.java)
-
-                        if (referencingFile != null && referencingFile.isValid) {
-                            getClassInfoFromPsiFile(referencingFile)?.let { dependentClassInfo ->
-                                if (dependentClassInfo.fqName != targetFqName) {
-                                    directDependents.getOrPut(targetFqName) { mutableSetOf() }.add(dependentClassInfo.fqName)
-                                }
+            for (classInfo in allProjectClasses.values) {
+                val psiClass = classInfo.psiClass ?: continue
+                val importList = (psiClass.containingFile as? PsiJavaFile)?.importList ?: continue
+                importList.allImportStatements.forEach { importStatement ->
+                    importStatement.resolve()?.let { resolvedElement ->
+                        if (resolvedElement is PsiClass) {
+                            val fqName = resolvedElement.qualifiedName
+                            if (fqName != null && allProjectClasses.containsKey(fqName)) {
+                                directDependents.getOrPut(classInfo.fqName) { mutableSetOf() }.add(fqName)
                             }
                         }
                     }
@@ -147,29 +142,15 @@ class DependencyAnalyzer(private val project: Project) {
             val currentClassInfo = allProjectClasses[currentFqName] ?: continue
             nodes.putIfAbsent(currentFqName, Node(currentClassInfo.simpleName, currentFqName, 0, 0))
 
-            ApplicationManager.getApplication().runReadAction {
-                val currentPsiClass = JavaPsiFacade.getInstance(project).findClass(currentFqName, GlobalSearchScope.allScope(project))
-                if (currentPsiClass != null) {
-                    val searchScope = GlobalSearchScope.projectScope(project)
-                    ReferencesSearch.search(currentPsiClass, searchScope).forEach { psiReference ->
-                        val referencingElement = psiReference.element
-                        val referencingFile = PsiTreeUtil.getParentOfType(referencingElement, PsiJavaFile::class.java)
-
-                        if (referencingFile != null && referencingFile.isValid) {
-                            getClassInfoFromPsiFile(referencingFile)?.let { potentialDependentInfo ->
-                                if (potentialDependentInfo.fqName != currentFqName) {
-                                    nodes.putIfAbsent(potentialDependentInfo.fqName, Node(potentialDependentInfo.simpleName, potentialDependentInfo.fqName, 0, 0))
-                                    if (edges.none { it.from == potentialDependentInfo.fqName && it.to == currentFqName }) {
-                                        edges.add(Edge(potentialDependentInfo.fqName, currentFqName))
-                                    }
-                                    if (potentialDependentInfo.fqName !in processed) {
-                                        processed.add(potentialDependentInfo.fqName)
-                                        queue.add(potentialDependentInfo.fqName)
-                                    }
-                                }
-                            }
-                        }
-                    }
+            directDependents[currentFqName]?.forEach { dependentFqName ->
+                val dependentClassInfo = allProjectClasses[dependentFqName] ?: return@forEach
+                nodes.putIfAbsent(dependentFqName, Node(dependentClassInfo.simpleName, dependentFqName, 0, 0))
+                if (edges.none { it.from == currentFqName && it.to == dependentFqName }) {
+                    edges.add(Edge(currentFqName, dependentFqName))
+                }
+                if (dependentFqName !in processed) {
+                    processed.add(dependentFqName)
+                    queue.add(dependentFqName)
                 }
             }
         }
