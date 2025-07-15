@@ -117,7 +117,10 @@ class DependencyAnalyzer(private val project: Project) {
                         if (resolvedElement is PsiClass) {
                             val fqName = resolvedElement.qualifiedName
                             if (fqName != null && allProjectClasses.containsKey(fqName)) {
-                                directDependents.getOrPut(classInfo.fqName) { mutableSetOf() }.add(fqName)
+                                val file = resolvedElement.containingFile.virtualFile
+                                if (file != null && ProjectRootManager.getInstance(project).fileIndex.isInContent(file)) {
+                                    directDependents.getOrPut(classInfo.fqName) { mutableSetOf() }.add(fqName)
+                                }
                             }
                         }
                     }
