@@ -146,6 +146,12 @@ class DependencyGraphPanel(
             refreshGraph(false)
         }
 
+        depthSpinner.addChangeListener {
+            if (modeComboBox.selectedIndex == 0) {
+                refreshGraph()
+            }
+        }
+
         project.messageBus.connect(this).subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, this)
 
         // Initial setup
