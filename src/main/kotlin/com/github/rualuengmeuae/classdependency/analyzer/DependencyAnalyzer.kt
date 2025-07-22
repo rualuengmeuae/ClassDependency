@@ -21,6 +21,8 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch // Added for finding references
 import com.intellij.psi.util.PsiTreeUtil // Added for PSI tree traversal
 import com.intellij.psi.PsiElement // Added for reference element
+import com.intellij.psi.PsiJavaCodeReferenceElement
+import com.intellij.psi.PsiRecursiveElementWalkingVisitor
 import com.intellij.psi.PsiReference // Added for reference type
 
 class DependencyAnalyzer(private val project: Project) {
@@ -111,20 +113,25 @@ class DependencyAnalyzer(private val project: Project) {
 
             for (classInfo in allProjectClasses.values) {
                 val psiClass = classInfo.psiClass ?: continue
-                val importList = (psiClass.containingFile as? PsiJavaFile)?.importList ?: continue
-                importList.allImportStatements.forEach { importStatement ->
-                    importStatement.resolve()?.let { resolvedElement ->
-                        if (resolvedElement is PsiClass) {
-                            val fqName = resolvedElement.qualifiedName
-                            if (fqName != null && allProjectClasses.containsKey(fqName)) {
-                                val file = resolvedElement.containingFile.virtualFile
-                                if (file != null && ProjectRootManager.getInstance(project).fileIndex.isInContent(file)) {
-                                    directDependents.getOrPut(classInfo.fqName) { mutableSetOf() }.add(fqName)
+                psiClass.accept(object : PsiRecursiveElementWalkingVisitor() {
+                    override fun visitElement(element: PsiElement) {
+                        super.visitElement(element)
+                        if (element is PsiJavaCodeReferenceElement) {
+                            val resolvedElement = element.resolve()
+                            if (resolvedElement is PsiClass) {
+                                val fqName = resolvedElement.qualifiedName
+                                if (fqName != null && allProjectClasses.containsKey(fqName)) {
+                                    val file = resolvedElement.containingFile.virtualFile
+                                    if (file != null && ProjectRootManager.getInstance(project).fileIndex.isInContent(file)) {
+                                        if (fqName != classInfo.fqName) {
+                                            directDependents.getOrPut(classInfo.fqName) { mutableSetOf() }.add(fqName)
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
+                })
             }
         }
 
