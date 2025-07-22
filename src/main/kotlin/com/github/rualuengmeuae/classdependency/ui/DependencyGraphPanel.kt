@@ -61,13 +61,21 @@ class DependencyGraphPanel(
     private val analyzeButton = JButton("Analyze")
     private val pathsScrollPane = JScrollPane(pathsTextArea)
     private val pathsDisplayTextArea = JTextArea(5, 50)
+    private val depthSpinner = JSpinner(SpinnerNumberModel(10, 1, 100, 1))
 
 
     init {
         val topPanel = JPanel(BorderLayout())
+        val controlsPanel = JPanel()
+        controlsPanel.add(JLabel("Depth:"))
+        controlsPanel.add(depthSpinner)
         topPanel.add(modeComboBox, BorderLayout.NORTH)
         topPanel.add(pathsScrollPane, BorderLayout.CENTER)
-        topPanel.add(analyzeButton, BorderLayout.SOUTH)
+
+        val southPanel = JPanel(BorderLayout())
+        southPanel.add(controlsPanel, BorderLayout.WEST)
+        southPanel.add(analyzeButton, BorderLayout.CENTER)
+        topPanel.add(southPanel, BorderLayout.SOUTH)
 
         add(topPanel, BorderLayout.NORTH)
         add(JScrollPane(graphPanel), BorderLayout.CENTER)
@@ -166,13 +174,14 @@ class DependencyGraphPanel(
             return
         }
 
+        val depth = depthSpinner.value as Int
         val result = when (modeComboBox.selectedIndex) {
-            0 -> analyzer.analyzeCurrentEditor()
+            0 -> analyzer.analyzeCurrentEditor(depth)
             1 -> {
                 val paths = pathsTextArea.text.split("\n").filter { it.isNotBlank() }
-                analyzer.analyzeDependenciesByPaths(paths)
+                analyzer.analyzeDependenciesByPaths(paths, depth)
             }
-            2 -> analyzer.analyzeAllProjectClasses()
+            2 -> analyzer.analyzeAllProjectClasses(depth)
             else -> null
         }
 
@@ -207,7 +216,7 @@ class DependencyGraphPanel(
         if (currentRoots.isEmpty() && newNodes.isNotEmpty()) {
             // Fallback: if all nodes have incoming edges from other displayed nodes (e.g., a cycle involving all)
             // Try to find the "ultimate target" of the original analysis if possible, or just pick one.
-            val originallyAnalyzedClassFqName = analyzer.analyzeCurrentEditor()?.first?.values?.firstOrNull { node ->
+            val originallyAnalyzedClassFqName = analyzer.analyzeCurrentEditor(depthSpinner.value as Int)?.first?.values?.firstOrNull { node ->
                 newEdges.none { it.from == node.fqName } // A node that nothing in the graph depends on
             }?.fqName
 

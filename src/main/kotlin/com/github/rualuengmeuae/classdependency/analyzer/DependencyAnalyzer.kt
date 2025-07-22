@@ -28,7 +28,7 @@ class DependencyAnalyzer(private val project: Project) {
     data class ClassInfo(val fqName: String, val simpleName: String, val file: VirtualFile, val psiClass: PsiClass? = null)
     private val classCache = mutableMapOf<String, ClassInfo>() // Cache FQNameToClassInfo
 
-    fun analyzeCurrentEditor(): Pair<Map<String, Node>, List<Edge>>? {
+    fun analyzeCurrentEditor(depth: Int): Pair<Map<String, Node>, List<Edge>>? {
         var currentPsiFile: PsiJavaFile? = null
         ApplicationManager.getApplication().runReadAction {
             val editor = FileEditorManager.getInstance(project).selectedTextEditor
@@ -43,7 +43,7 @@ class DependencyAnalyzer(private val project: Project) {
         val psiJavaFile = currentPsiFile ?: return null
         val targetClass = getClassInfoFromPsiFile(psiJavaFile) ?: return null
 
-        return analyzeDependencies(targetClass.fqName)
+        return analyzeDependencies(targetClass.fqName, depth)
     }
 
     private fun getClassInfoFromPsiFile(psiFile: PsiJavaFile): ClassInfo? {
@@ -61,7 +61,7 @@ class DependencyAnalyzer(private val project: Project) {
     }
 
 
-    fun analyzeDependenciesByPaths(paths: List<String>): Pair<Map<String, Node>, List<Edge>>? {
+    fun analyzeDependenciesByPaths(paths: List<String>, depth: Int): Pair<Map<String, Node>, List<Edge>>? {
         val targetFqNames = paths.mapNotNull { path ->
             val virtualFile = LocalFileSystem.getInstance().findFileByPath(path)
             if (virtualFile != null) {
@@ -77,13 +77,13 @@ class DependencyAnalyzer(private val project: Project) {
         }
         if (targetFqNames.isEmpty()) return null
 
-        return analyzeDependencies(targetFqNames)
+        return analyzeDependencies(targetFqNames, depth)
     }
 
-    private fun analyzeDependencies(targetFqName: String): Pair<Map<String, Node>, List<Edge>> {
-        return analyzeDependencies(listOf(targetFqName))
+    private fun analyzeDependencies(targetFqName: String, depth: Int): Pair<Map<String, Node>, List<Edge>> {
+        return analyzeDependencies(listOf(targetFqName), depth)
     }
-    private fun analyzeDependencies(targetFqNames: List<String>): Pair<Map<String, Node>, List<Edge>> {
+    private fun analyzeDependencies(targetFqNames: List<String>, depth: Int): Pair<Map<String, Node>, List<Edge>> {
         val allJavaFiles = mutableListOf<PsiJavaFile>()
         ApplicationManager.getApplication().runReadAction {
             ProjectRootManager.getInstance(project).fileIndex.iterateContent { virtualFile ->
@@ -131,17 +131,20 @@ class DependencyAnalyzer(private val project: Project) {
         val nodes = mutableMapOf<String, Node>()
         val edges = mutableListOf<Edge>()
         val processed = mutableSetOf<String>()
-        val queue: Queue<String> = LinkedList()
+        val queue: Queue<Pair<String, Int>> = LinkedList()
 
         for (targetFqName in targetFqNames) {
             val targetSimpleName = targetFqName.substringAfterLast('.')
             nodes[targetFqName] = Node(targetSimpleName, targetFqName, 0, 0)
             processed.add(targetFqName)
-            queue.add(targetFqName)
+            queue.add(targetFqName to 0)
         }
 
         while (queue.isNotEmpty()) {
-            val currentFqName = queue.poll()
+            val (currentFqName, currentDepth) = queue.poll()
+
+            if (currentDepth >= depth) continue
+
             val currentClassInfo = allProjectClasses[currentFqName] ?: continue
             nodes.putIfAbsent(currentFqName, Node(currentClassInfo.simpleName, currentFqName, 0, 0))
 
@@ -153,14 +156,14 @@ class DependencyAnalyzer(private val project: Project) {
                 }
                 if (dependentFqName !in processed) {
                     processed.add(dependentFqName)
-                    queue.add(dependentFqName)
+                    queue.add(dependentFqName to currentDepth + 1)
                 }
             }
         }
         return Pair(nodes, edges.distinct())
     }
 
-    fun analyzeAllProjectClasses(): Pair<Map<String, Node>, List<Edge>> {
+    fun analyzeAllProjectClasses(depth: Int): Pair<Map<String, Node>, List<Edge>> {
         val allJavaFiles = mutableListOf<PsiJavaFile>()
         ApplicationManager.getApplication().runReadAction {
             ProjectRootManager.getInstance(project).fileIndex.iterateContent { virtualFile ->
@@ -175,7 +178,7 @@ class DependencyAnalyzer(private val project: Project) {
         }
 
         val allFqNames = allJavaFiles.mapNotNull { getClassInfoFromPsiFile(it)?.fqName }
-        return analyzeDependencies(allFqNames)
+        return analyzeDependencies(allFqNames, depth)
     }
 
      fun findClassFile(fqName: String): VirtualFile? {
