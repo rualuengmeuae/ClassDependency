@@ -14,6 +14,6 @@
                     id="Class Reverse Dependencies"
                     anchor="right"
                     icon="AllIcons.Toolwindows.ToolWindowHierarchy"/>
-        <!-- Removed postStartupActivity and services -->
+        <notificationGroup id="Dependency Analysis" displayType="BALLOON"/>
     </extensions>
 </idea-plugin>

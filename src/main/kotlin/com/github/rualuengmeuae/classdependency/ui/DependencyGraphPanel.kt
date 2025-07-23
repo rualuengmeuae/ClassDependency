@@ -5,6 +5,11 @@ import com.intellij.openapi.Disposable // For MessageBusConnection
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerListener // Added import
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
+import com.intellij.openapi.progress.ProgressIndicator
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
 // import com.intellij.openapi.vfs.LocalFileSystem // Not directly used here, but analyzer uses it
 import com.intellij.psi.JavaPsiFacade
 // import com.intellij.psi.PsiClass // Not directly used here
@@ -59,6 +64,7 @@ class DependencyGraphPanel(
     private val modeComboBox = JComboBox(arrayOf("Current File", "Multiple Files", "All Project Files"))
     private val pathsTextArea = JTextArea(5, 50)
     private val analyzeButton = JButton("Analyze")
+    private val refreshButton = JButton("Refresh")
     private val pathsScrollPane = JScrollPane(pathsTextArea)
     private val pathsDisplayTextArea = JTextArea(5, 50)
     private val depthSpinner = JSpinner(SpinnerNumberModel(10, 1, 100, 1))
@@ -75,6 +81,7 @@ class DependencyGraphPanel(
         val southPanel = JPanel(BorderLayout())
         southPanel.add(controlsPanel, BorderLayout.WEST)
         southPanel.add(analyzeButton, BorderLayout.CENTER)
+        southPanel.add(refreshButton, BorderLayout.EAST)
         topPanel.add(southPanel, BorderLayout.SOUTH)
 
         add(topPanel, BorderLayout.NORTH)
@@ -139,10 +146,17 @@ class DependencyGraphPanel(
             val selectedMode = modeComboBox.selectedIndex
             pathsScrollPane.isVisible = selectedMode == 1
             analyzeButton.isVisible = selectedMode == 1 || selectedMode == 2
-            refreshGraph()
+            refreshButton.isVisible = selectedMode == 0
+            if (selectedMode != 0) {
+                refreshGraph()
+            }
         }
 
         analyzeButton.addActionListener {
+            refreshGraph(false)
+        }
+
+        refreshButton.addActionListener {
             refreshGraph(false)
         }
 
@@ -158,6 +172,7 @@ class DependencyGraphPanel(
         val selectedMode = modeComboBox.selectedIndex
         pathsScrollPane.isVisible = selectedMode == 1
         analyzeButton.isVisible = selectedMode == 1 || selectedMode == 2
+        refreshButton.isVisible = selectedMode == 0
     }
 
     // FileEditorManagerListener methods
@@ -172,6 +187,11 @@ class DependencyGraphPanel(
     }
 
     override fun selectionChanged(event: com.intellij.openapi.fileEditor.FileEditorManagerEvent) {
+        if (modeComboBox.selectedIndex == 0) {
+            // In "Current File" mode, do not refresh automatically.
+            // The user must click the "Refresh" button.
+            return
+        }
         refreshGraph(true)
     }
 
@@ -180,22 +200,38 @@ class DependencyGraphPanel(
             return
         }
 
-        val depth = depthSpinner.value as Int
-        val result = when (modeComboBox.selectedIndex) {
-            0 -> analyzer.analyzeCurrentEditor(depth)
-            1 -> {
-                val paths = pathsTextArea.text.split("\n").filter { it.isNotBlank() }
-                analyzer.analyzeDependenciesByPaths(paths, depth)
-            }
-            2 -> analyzer.analyzeAllProjectClasses(depth)
-            else -> null
-        }
+        ProgressManager.getInstance().run(object : Task.Backgroundable(project, "Analyzing Dependencies", false) {
+            override fun run(indicator: ProgressIndicator) {
+                indicator.isIndeterminate = true
+                indicator.text = "Calculating dependencies..."
 
-        if (result != null) {
-            updateGraph(result.first, result.second)
-        } else {
-            updateGraph(emptyMap(), emptyList())
-        }
+                val depth = depthSpinner.value as Int
+                val result = when (modeComboBox.selectedIndex) {
+                    0 -> {
+                        if (fromSelectionChange) return
+                        analyzer.analyzeCurrentEditor(depth)
+                    }
+                    1 -> {
+                        val paths = pathsTextArea.text.split("\n").filter { it.isNotBlank() }
+                        analyzer.analyzeDependenciesByPaths(paths, depth)
+                    }
+                    2 -> analyzer.analyzeAllProjectClasses(depth)
+                    else -> null
+                }
+
+                ApplicationManager.getApplication().invokeLater {
+                    if (result != null) {
+                        updateGraph(result.first, result.second)
+                    } else {
+                        updateGraph(emptyMap(), emptyList())
+                    }
+                    NotificationGroupManager.getInstance()
+                        .getNotificationGroup("Dependency Analysis")
+                        .createNotification("Dependency analysis complete", NotificationType.INFORMATION)
+                        .notify(project)
+                }
+            }
+        })
     }
 
     fun updateGraph(newNodes: Map<String, Node>, newEdges: List<Edge>) {
